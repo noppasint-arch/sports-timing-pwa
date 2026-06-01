@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: sports-timing-pwa
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.cjs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        generateValue: false
+    healthCheckPath: /
