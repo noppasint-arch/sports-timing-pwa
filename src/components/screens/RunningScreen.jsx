@@ -18,9 +18,8 @@ export default function RunningScreen({
   const [triggered,  setTriggered] = useState(false);
   const [flashColor, setFlashColor]= useState(null);   // 'red' | 'green' | null
   const [yDirection, setYDir]      = useState(null);
-  const [triggerMode, setTriggerMode] = useState(
-    settings?.cameraEnabled ? 'camera' : 'button'
-  ); // 'camera' | 'button' | 'both'
+  const [timerStarted, setTimerStarted] = useState(false);
+  const triggerMode = 'camera';
 
   const triggerSystemRef  = useRef(null);
   const cameraDetectorRef = useRef(null);
@@ -51,7 +50,7 @@ export default function RunningScreen({
     if (phase !== 'countdown') return;
     if (countdown <= 0) {
       setPhase('active');
-      startTimeRef.current = getServerTime();
+      // startTimeRef will be set when START trigger fires, not here
 
       // Arm trigger systems
       triggerSystemRef.current?.enable();
@@ -76,6 +75,16 @@ export default function RunningScreen({
     if (template?.id !== 'y-shape-agility') return;
     return connection.on('ytest:direction', ({ direction }) => setYDir(direction));
   }, [template]);
+
+  // ── Start timer when START trigger fires ─────────────────────────────────
+  useEffect(() => {
+    if (timerStarted) return;
+    const startEvent = trialEvents.find(e => e.role === 'START');
+    if (startEvent) {
+      startTimeRef.current = startEvent.correctedTime;
+      setTimerStarted(true);
+    }
+  }, [trialEvents, timerStarted]);
 
   // ── Trial completion check (host only) ───────────────────────────────────
   useEffect(() => {
@@ -116,10 +125,6 @@ export default function RunningScreen({
     setTimeout(() => setFlashColor(null), 800);
   }, [triggered, phase, myRole, onTrigger]);
 
-  const handleButtonPress = useCallback(() => {
-    triggerSystemRef.current?.buttonTrigger(getServerTime);
-  }, [getServerTime]);
-
   // Camera gate trigger handler
   const handleCameraTrigger = useCallback(({ method, correctedTime, rawTime }) => {
     handleTriggerFired(method || 'camera', correctedTime);
@@ -143,16 +148,8 @@ export default function RunningScreen({
         <button onClick={onAbort} className="text-red-400 text-sm font-bold">✕ Abort</button>
         <div className="text-slate-400 text-sm font-bold">{myRole}</div>
         {isTriggerRole && (
-          <div className="flex gap-1">
-            {['camera', 'button'].map(m => (
-              <button key={m}
-                onClick={() => setTriggerMode(m)}
-                className={`text-xs px-2 py-1 rounded-lg font-bold transition-colors ${
-                  triggerMode === m ? 'bg-brand-600 text-white' : 'bg-slate-700 text-slate-400'
-                }`}>
-                {m === 'camera' ? '📷' : '👆'}
-              </button>
-            ))}
+          <div className="text-xs px-3 py-1 rounded-lg bg-slate-700 text-slate-300 font-bold">
+            📷 Camera Gate
           </div>
         )}
       </div>
@@ -162,7 +159,7 @@ export default function RunningScreen({
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
           <CountdownDisplay value={countdown} />
           <div className="text-slate-400 text-lg">
-            {triggerMode === 'camera' ? '📷 Camera gate arming…' : 'Get Ready'}
+            📷 Camera gate arming…
           </div>
         </div>
       )}
@@ -170,8 +167,16 @@ export default function RunningScreen({
       {/* ── ACTIVE ────────────────────────────────────────────────────────── */}
       {phase === 'active' && (
         <>
-          {/* Live timer — always visible */}
-          <LiveTimer startTime={startTimeRef.current} getServerTime={getServerTime} />
+          {/* Live timer — only after START camera fires */}
+          {timerStarted
+            ? <LiveTimer startTime={startTimeRef.current} getServerTime={getServerTime} />
+            : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                <div className="text-7xl font-black font-mono text-slate-600">0.00</div>
+                <div className="text-slate-400 text-lg animate-pulse">⏳ Waiting for START gate…</div>
+              </div>
+            )
+          }
 
           {/* Y-test direction */}
           {isYCenter && yDirection && (
@@ -206,16 +211,6 @@ export default function RunningScreen({
             />
           )}
 
-          {/* ── BUTTON MODE ──────────────────────────────────────────────── */}
-          {isTriggerRole && triggerMode === 'button' && !triggered && (
-            <button
-              onPointerDown={handleButtonPress}
-              className="btn-trigger bg-red-600 text-white pulse-green shrink-0"
-              style={{ minHeight: 160 }}
-            >
-              {isStartRole ? '▶ START' : '🏁 FINISH'}
-            </button>
-          )}
 
           {/* Triggered confirmation */}
           {triggered && (

@@ -57,7 +57,10 @@ export default function App() {
       connection.on('result:new', (result) => {
         setLastResult(result);
       }),
-      connection.on('test:start_trial', () => setTrialEvents([])),
+      connection.on('test:start_trial', () => {
+        setTrialEvents([]);
+        setScreen(prev => (prev === 'display' ? 'display' : 'running'));
+      }),
       connection.on('test:abort_trial', () => {
         setTrialEvents([]);
         setScreen('ready');

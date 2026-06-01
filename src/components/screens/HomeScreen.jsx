@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { getAllTemplates } from '../../templates/TemplateEngine';
 import { getSettings } from '../../core/StorageManager';
 
 export default function HomeScreen({ onCreateSession, onJoinSession, onHistory, onSettings, connected }) {
   const [mode,       setMode]       = useState(null); // null | 'create' | 'join'
-  const [joinCode,   setJoinCode]   = useState('');
+  const [digits,     setDigits]     = useState(['', '', '', '']);
   const [hostName,   setHostName]   = useState(getSettings().deviceName || 'Coach');
   const [deviceName, setDeviceName] = useState(getSettings().deviceName || 'Device');
   const [templateId, setTemplateId] = useState('sprint-30m');
   const [error,      setError]      = useState('');
   const [loading,    setLoading]    = useState(false);
+  const digitRefs = [useRef(), useRef(), useRef(), useRef()];
+  const joinCode = digits.join('');
 
   const templates = getAllTemplates();
 
@@ -18,6 +20,29 @@ export default function HomeScreen({ onCreateSession, onJoinSession, onHistory, 
     const res = await onCreateSession({ templateId, hostName });
     if (!res.ok) setError(res.error || 'Failed to create session');
     setLoading(false);
+  }
+
+  function handleDigitInput(i, val) {
+    const d = val.replace(/\D/g, '').slice(-1);
+    const next = [...digits];
+    next[i] = d;
+    setDigits(next);
+    if (d && i < 3) digitRefs[i + 1].current?.focus();
+  }
+
+  function handleDigitKey(i, e) {
+    if (e.key === 'Backspace' && !digits[i] && i > 0) {
+      digitRefs[i - 1].current?.focus();
+    }
+  }
+
+  function handleDigitPaste(e) {
+    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 4);
+    if (text.length === 4) {
+      setDigits(text.split(''));
+      digitRefs[3].current?.focus();
+      e.preventDefault();
+    }
   }
 
   async function handleJoin() {
@@ -136,15 +161,24 @@ export default function HomeScreen({ onCreateSession, onJoinSession, onHistory, 
 
           <div className="space-y-2">
             <label className="text-slate-400 text-sm">4-Digit Session Code</label>
-            <input
-              className="w-full bg-slate-700 rounded-xl px-4 py-3 text-4xl font-mono text-center
-                         tracking-[0.4em] outline-none focus:ring-2 focus:ring-brand-500"
-              value={joinCode}
-              onChange={e => setJoinCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              placeholder="0000"
-              inputMode="numeric"
-              maxLength={4}
-            />
+            <div className="flex gap-3 justify-center">
+              {digits.map((d, i) => (
+                <input
+                  key={i}
+                  ref={digitRefs[i]}
+                  className="w-16 h-16 bg-slate-700 rounded-xl text-3xl font-mono text-center
+                             outline-none focus:ring-2 focus:ring-brand-500 caret-transparent"
+                  value={d}
+                  onChange={e => handleDigitInput(i, e.target.value)}
+                  onKeyDown={e => handleDigitKey(i, e)}
+                  onPaste={handleDigitPaste}
+                  onFocus={e => e.target.select()}
+                  inputMode="numeric"
+                  maxLength={1}
+                  placeholder="—"
+                />
+              ))}
+            </div>
           </div>
 
           {error && <p className="text-red-400 text-sm">{error}</p>}

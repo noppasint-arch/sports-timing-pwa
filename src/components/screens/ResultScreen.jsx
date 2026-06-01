@@ -60,9 +60,7 @@ export default function ResultScreen({ session, result, trialEvents, onNextTrial
           <>
             <div className="text-6xl font-black font-mono tabular-nums text-brand-400">
               {typeof primaryTime === 'number'
-                ? primaryTime >= 1000
-                  ? `${(primaryTime / 1000).toFixed(2)}s`
-                  : `${primaryTime.toFixed(0)}ms`
+                ? `${primaryTime.toFixed(2)}s`
                 : primaryTime}
             </div>
             <div className="text-slate-400 text-sm mt-1">
