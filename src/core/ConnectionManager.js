@@ -20,9 +20,10 @@ export class ConnectionManager {
     if (this.socket) this.socket.disconnect();
 
     this.socket = io(serverUrl || window.location.origin, {
-      transports: ['websocket'],
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
+      transports: ['polling', 'websocket'],
+      reconnectionAttempts: 20,
+      reconnectionDelay: 2000,
+      timeout: 30000,
     });
 
     this.socket.on('connect', () => {
