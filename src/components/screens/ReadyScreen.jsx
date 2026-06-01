@@ -32,7 +32,7 @@ export default function ReadyScreen({
           <div className="font-bold">{template.name}</div>
           <div className="text-slate-400 text-xs">Trial {trialCount + 1}</div>
         </div>
-        <SyncBadge quality={syncResult?.quality} />
+        <SyncBadge quality={syncResult?.quality} accuracy={syncResult?.accuracy} />
       </div>
 
       {/* Device role badge */}

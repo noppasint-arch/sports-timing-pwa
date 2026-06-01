@@ -1,67 +1,58 @@
 /**
  * CameraMotionDetector — electronic light gate via phone camera.
  *
- * How it works (mimics an IR timing gate):
- *   1. Camera feed → Canvas (30fps)
- *   2. A narrow horizontal "detection zone" strip is sampled each frame
- *   3. Strip pixels converted to grayscale and compared with previous frame
- *   4. Mean Absolute Difference (MAD) of the zone is computed
- *   5. When MAD exceeds threshold → TRIGGER (athlete broke the beam)
- *   6. Hard debounce after trigger to prevent double-fires
+ * Algorithm: Background Subtraction (not frame-diff)
+ *   1. Maintain a running background model (exponential moving average of frames)
+ *   2. Each frame: compare pixels to background, count "foreground" pixels
+ *   3. When foreground% in detection zone exceeds threshold → TRIGGER
  *
- * The detection zone is a configurable horizontal band across the frame,
- * mirroring the line marker concept — coach aligns the band with the
- * physical tape/cone on the ground via camera framing.
- *
- * Usage:
- *   const detector = new CameraMotionDetector({ onTrigger, onFrame });
- *   await detector.start();
- *   detector.setZone(0.45, 0.10);   // zone top 45%, height 10% of frame
- *   detector.setSensitivity(25);     // MAD threshold (0-255)
- *   detector.enable();               // arm the gate
- *   detector.stop();                 // release camera
+ * This is far more robust than MAD frame-diff:
+ *   - Works for slow walking OR fast sprinting
+ *   - Works close-up OR at distance
+ *   - Not sensitive to camera shake or lighting flicker
+ *   - Sensitivity = how many gray levels a pixel must differ from background
  */
 export class CameraMotionDetector {
   constructor({
-    onTrigger,           // ({ method, correctedTime, rawTime, mad }) => void
-    onFrame,             // ({ mad, armed, zoneTop, zoneHeight }) => void — live feed stats
-    sensitivity = 25,    // MAD threshold (lower = more sensitive)
-    debounce    = 1500,  // ms to ignore after trigger
-    fps         = 30,
-    facingMode  = 'environment',  // rear camera by default
+    onTrigger,
+    onFrame,
+    sensitivity  = 20,   // gray-level diff to classify as foreground (0–255)
+    minFgPercent = 0.15, // fraction of zone pixels that must be foreground to trigger
+    debounce     = 2000, // ms to ignore after trigger
+    fps          = 30,
+    facingMode   = 'environment',
   } = {}) {
-    this.onTrigger   = onTrigger;
-    this.onFrame     = onFrame;
-    this.sensitivity = sensitivity;
-    this.debounce    = debounce;
-    this.fps         = fps;
-    this.facingMode  = facingMode;
+    this.onTrigger     = onTrigger;
+    this.onFrame       = onFrame;
+    this.sensitivity   = sensitivity;
+    this.minFgPercent  = minFgPercent;
+    this.debounce      = debounce;
+    this.fps           = fps;
+    this.facingMode    = facingMode;
 
-    // Detection zone: fraction of frame height (0–1)
-    this.zoneTop    = 0.40;  // default: 40% from top
-    this.zoneHeight = 0.12;  // default: 12% tall strip
+    this.zoneTop    = 0.40;
+    this.zoneHeight = 0.15;  // slightly taller zone for better coverage
 
-    this._stream      = null;
-    this._video       = null;
-    this._canvas      = null;
-    this._ctx         = null;
-    this._prevGray    = null;
-    this._armed       = false;
-    this._lastFire    = 0;
-    this._rafId       = null;
+    this._stream       = null;
+    this._video        = null;
+    this._canvas       = null;
+    this._ctx          = null;
+    this._background   = null;  // running background model
+    this._armed        = false;
+    this._lastFire     = 0;
+    this._rafId        = null;
     this._getServerTime = () => Date.now();
-    this._frameCount  = 0;
-    this._warmupFrames = 10; // discard first N frames (auto-exposure settling)
+    this._frameCount   = 0;
+    this._warmupFrames = 20;  // more warmup for background to settle
+    this._bgAlpha      = 0.05; // background learning rate (slow = stable bg)
   }
 
-  /** Arm the gate — calls onTrigger when motion detected */
   enable()  { this._armed = true; }
-  /** Disarm without releasing camera */
   disable() { this._armed = false; }
 
   setZone(top, height) {
-    this.zoneTop    = Math.max(0, Math.min(0.9, top));
-    this.zoneHeight = Math.max(0.02, Math.min(0.5, height));
+    this.zoneTop    = Math.max(0, Math.min(0.85, top));
+    this.zoneHeight = Math.max(0.05, Math.min(0.5, height));
   }
 
   setSensitivity(threshold) {
@@ -72,7 +63,6 @@ export class CameraMotionDetector {
     this._getServerTime = fn;
   }
 
-  /** Request camera and begin processing frames */
   async start(videoEl = null) {
     if (this._stream) return;
 
@@ -86,21 +76,19 @@ export class CameraMotionDetector {
       audio: false,
     });
 
-    // Use provided video element or create an offscreen one
     this._video = videoEl || document.createElement('video');
     this._video.srcObject = this._stream;
     this._video.playsInline = true;
     this._video.muted = true;
     await this._video.play();
 
-    // Offscreen canvas for pixel analysis
     this._canvas = document.createElement('canvas');
-    this._canvas.width  = 320;  // process at half res — fast enough, accurate enough
+    this._canvas.width  = 320;
     this._canvas.height = 240;
     this._ctx = this._canvas.getContext('2d', { willReadFrequently: true });
 
     this._frameCount = 0;
-    this._prevGray   = null;
+    this._background = null;
     this._loop();
   }
 
@@ -110,72 +98,90 @@ export class CameraMotionDetector {
     this._stream?.getTracks().forEach(t => t.stop());
     this._stream = null;
     this._video  = null;
-    this._prevGray = null;
+    this._background = null;
   }
 
-  // ── Frame processing loop ────────────────────────────────────────────────
+  _toGray(data, length) {
+    const gray = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      const p = i * 4;
+      gray[i] = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+    }
+    return gray;
+  }
+
+  _updateBackground(gray) {
+    if (!this._background) {
+      this._background = Float32Array.from(gray);
+      return;
+    }
+    const a = this._bgAlpha;
+    for (let i = 0; i < gray.length; i++) {
+      this._background[i] = a * gray[i] + (1 - a) * this._background[i];
+    }
+  }
+
+  _foregroundPercent(gray) {
+    if (!this._background) return 0;
+    let fg = 0;
+    for (let i = 0; i < gray.length; i++) {
+      if (Math.abs(gray[i] - this._background[i]) > this.sensitivity) fg++;
+    }
+    return fg / gray.length;
+  }
+
   _loop() {
     this._rafId = requestAnimationFrame(() => this._loop());
-
     if (!this._video || this._video.readyState < 2) return;
 
     const W = this._canvas.width;
     const H = this._canvas.height;
 
-    // Draw current frame at reduced resolution
     this._ctx.drawImage(this._video, 0, 0, W, H);
 
-    // Extract detection zone pixel data
-    const zY  = Math.floor(this.zoneTop * H);
-    const zH  = Math.max(2, Math.floor(this.zoneHeight * H));
-    const data = this._ctx.getImageData(0, zY, W, zH).data;
-
-    // Convert to grayscale array
-    const gray = new Float32Array(W * zH);
-    for (let i = 0; i < W * zH; i++) {
-      const p = i * 4;
-      gray[i] = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-    }
+    const zY   = Math.floor(this.zoneTop * H);
+    const zH   = Math.max(4, Math.floor(this.zoneHeight * H));
+    const data  = this._ctx.getImageData(0, zY, W, zH).data;
+    const gray  = this._toGray(data, W * zH);
 
     this._frameCount++;
 
-    let mad = 0;
-    if (this._prevGray && this._frameCount > this._warmupFrames) {
-      // Mean Absolute Difference between current and previous frame
-      let sum = 0;
+    // Always update background (slower learning when armed to preserve reference)
+    const alpha = this._armed ? 0.01 : this._bgAlpha;
+    if (!this._background) {
+      this._background = Float32Array.from(gray);
+    } else {
       for (let i = 0; i < gray.length; i++) {
-        sum += Math.abs(gray[i] - this._prevGray[i]);
-      }
-      mad = sum / gray.length;
-
-      // Notify UI with live stats
-      this.onFrame?.({
-        mad:        Math.round(mad * 10) / 10,
-        armed:      this._armed,
-        zoneTop:    this.zoneTop,
-        zoneHeight: this.zoneHeight,
-        threshold:  this.sensitivity,
-      });
-
-      // Trigger condition
-      if (this._armed && mad >= this.sensitivity) {
-        const now = Date.now();
-        if (now - this._lastFire >= this.debounce) {
-          this._lastFire = now;
-          this._armed = false; // auto-disarm after trigger (re-armed by engine)
-          this.onTrigger?.({
-            method:        'camera',
-            correctedTime: this._getServerTime(),
-            rawTime:       now,
-            mad:           Math.round(mad),
-          });
-        }
+        this._background[i] = alpha * gray[i] + (1 - alpha) * this._background[i];
       }
     }
 
-    this._prevGray = gray;
+    if (this._frameCount < this._warmupFrames) return;
+
+    const fgPct = this._foregroundPercent(gray);
+
+    this.onFrame?.({
+      mad:        Math.round(fgPct * 100),  // repurpose as foreground% 0-100
+      armed:      this._armed,
+      zoneTop:    this.zoneTop,
+      zoneHeight: this.zoneHeight,
+      threshold:  Math.round(this.minFgPercent * 100),
+    });
+
+    if (this._armed && fgPct >= this.minFgPercent) {
+      const now = Date.now();
+      if (now - this._lastFire >= this.debounce) {
+        this._lastFire = now;
+        this._armed    = false;
+        this.onTrigger?.({
+          method:        'camera',
+          correctedTime: this._getServerTime(),
+          rawTime:       now,
+          mad:           Math.round(fgPct * 100),
+        });
+      }
+    }
   }
 
-  /** Returns the live video stream for displaying preview in UI */
   getStream() { return this._stream; }
 }

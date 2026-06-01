@@ -151,11 +151,13 @@ export default function App() {
   const handleStartSync = useCallback(async () => {
     if (isHost) connection.emit('test:start_sync');
     // All devices run sync independently
-    const ts = new TimeSync(connection.socket, 10);
+    if (timeSyncRef.current) timeSyncRef.current.stopDriftCorrection();
+    const ts = new TimeSync(connection.socket, 30);
     timeSyncRef.current = ts;
     const result = await ts.run();
     setSyncResult(result);
-    connection.emit('sync:report', { offset: result.offset, quality: result.quality });
+    ts.startDriftCorrection();
+    connection.emit('sync:report', { offset: result.offset, quality: result.quality, accuracy: result.accuracy });
     return result;
   }, [isHost]);
 
