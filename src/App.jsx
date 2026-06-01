@@ -37,6 +37,9 @@ export default function App() {
   const [connected,   setConnected]   = useState(false);
 
   const timeSyncRef = useRef(null);
+  const sessionRef  = useRef(null);
+  const myRoleRef   = useRef(null);
+  const isHostRef   = useRef(false);
 
   // ── Connection lifecycle ───────────────────────────────────────────────────
   useEffect(() => {
@@ -44,7 +47,25 @@ export default function App() {
     connection.connect(serverUrl);
 
     const off = [
-      connection.on('connect',    ()  => setConnected(true)),
+      connection.on('connect', () => {
+        setConnected(true);
+        // Re-join session automatically after reconnect
+        const s = sessionRef.current;
+        const r = myRoleRef.current;
+        const h = isHostRef.current;
+        if (s?.code) {
+          if (h) {
+            connection.emit('session:rejoin_host', { code: s.code, deviceName: settings.deviceName || 'Host' });
+          } else if (r) {
+            connection.emitAsync('session:join', { code: s.code, deviceName: settings.deviceName || 'Device', deviceId }).then(res => {
+              if (res.ok) {
+                setSession(res.sessionData);
+                connection.emit('role:assign', { role: r, label: r, name: settings.deviceName || 'Device' });
+              }
+            }).catch(() => {});
+          }
+        }
+      }),
       connection.on('disconnect', ()  => setConnected(false)),
       connection.on('latency',    (ms) => setLatency(ms)),
       connection.on('session:updated', (s) => setSession(s)),
@@ -79,6 +100,11 @@ export default function App() {
 
     return () => { off.forEach(fn => fn()); connection.disconnect(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep refs in sync so reconnect handler always has latest values
+  useEffect(() => { sessionRef.current = session; }, [session]);
+  useEffect(() => { myRoleRef.current = myRole; }, [myRole]);
+  useEffect(() => { isHostRef.current = isHost; }, [isHost]);
 
   // ── Sync clock offset getter ──────────────────────────────────────────────
   const getServerTime = useCallback(() => {
