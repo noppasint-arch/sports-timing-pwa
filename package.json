@@ -10,7 +10,8 @@
     "server": "node server/index.cjs",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server/index.cjs"
+    "start": "node server/index.cjs",
+    "build:start": "npm run build && node server/index.cjs"
   },
   "dependencies": {
     "express": "^4.18.2",
