@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getTemplate } from '../../templates/TemplateEngine';
 import SyncBadge from '../ui/SyncBadge';
 import LineMarker from '../ui/LineMarker';
+import { ensureCameraStarted, getCameraDetector } from '../../core/CameraManager';
 
 export default function ReadyScreen({
   session, myRole, isHost, syncResult, latency,
@@ -12,6 +13,16 @@ export default function ReadyScreen({
   const [trialCount,   setTrialCount]   = useState(0);
 
   const template = session ? getTemplate(session.testTemplate) : null;
+
+  // Pre-warm camera in background while on Ready screen so it's instant when trial starts
+  const isTriggerRole = ['START','FINISH','SPLIT','SPLIT2','LEFT','RIGHT','FORWARD'].includes(myRole);
+  useEffect(() => {
+    if (!isTriggerRole) return;
+    if (getCameraDetector()?._stream) return; // already running
+    ensureCameraStarted({ sensitivity: 20, zoneCenter: 0.5, zoneWidth: 0.08 })
+      .catch(() => {}); // silently ignore if permission denied here
+  }, [isTriggerRole]);
+
   if (!template) return null;
 
   function handleStart() {

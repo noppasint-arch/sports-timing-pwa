@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { connection } from './core/ConnectionManager';
 import { TimeSync }   from './core/TimeSync';
 import { getSettings, saveSettings } from './core/StorageManager';
+import { releaseCamera } from './core/CameraManager';
 
 import HomeScreen        from './components/screens/HomeScreen';
 import SessionSetupScreen from './components/screens/SessionSetupScreen';
@@ -207,6 +208,7 @@ export default function App() {
   }, []);
 
   const handleHome = useCallback(() => {
+    releaseCamera();   // stop camera stream when leaving session
     setScreen('home');
     setSession(null);
     setMyRole(null);
