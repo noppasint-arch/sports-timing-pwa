@@ -6,7 +6,7 @@ export default function CameraGate({
   onTrigger,
   getServerTime,
   sensitivity: initSensitivity = 20,
-  zonePosition: initZone = 0.45,
+  zonePosition: initZone = 0.50,
   onDetectorReady,
 }) {
   const videoRef    = useRef(null);
@@ -17,10 +17,11 @@ export default function CameraGate({
   const [error,       setError]       = useState(null);
   const [stats,       setStats]       = useState(null);
   const [sensitivity, setSensitivity] = useState(initSensitivity);
-  const [zonePos,     setZonePos]     = useState(initZone);
+  const [zoneCenter,  setZoneCenter]  = useState(initZone);
   const [justFired,   setJustFired]   = useState(false);
-  const zoneHeight = 0.15;
+  const zoneWidth = 0.08;  // fixed narrow strip
 
+  // ── Start detector ────────────────────────────────────────────────────────
   useEffect(() => {
     const detector = new CameraMotionDetector({
       onTrigger: (ev) => {
@@ -30,16 +31,15 @@ export default function CameraGate({
       },
       onFrame: (s) => setStats(s),
       sensitivity: initSensitivity,
-      minFgPercent: 0.15,
+      minFgPercent: 0.20,
     });
     detectorRef.current = detector;
     onDetectorReady?.(detector);
     detector.setServerTimeFn(getServerTime);
-    detector.setZone(initZone - zoneHeight / 2, zoneHeight);
+    detector.setZone(initZone, zoneWidth);
     detector.start(videoRef.current)
       .then(() => setStarted(true))
       .catch(err => setError(err.message || 'Camera unavailable'));
-
     return () => detector.stop();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -50,71 +50,75 @@ export default function CameraGate({
   }, [armed]);
 
   useEffect(() => { detectorRef.current?.setSensitivity(sensitivity); }, [sensitivity]);
-  useEffect(() => { detectorRef.current?.setZone(zonePos - zoneHeight / 2, zoneHeight); }, [zonePos]);
+  useEffect(() => { detectorRef.current?.setZone(zoneCenter, zoneWidth); }, [zoneCenter]);
 
-  // Canvas overlay drawing
+  // ── Draw vertical gate overlay ────────────────────────────────────────────
   useEffect(() => {
     const canvas = overlayRef.current;
-    if (!canvas || !stats) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    const zTop = (stats.zoneTop ?? (zonePos - zoneHeight / 2)) * H;
-    const zH   = (stats.zoneHeight ?? zoneHeight) * H;
+    const center = (stats?.zoneCenter ?? zoneCenter) * W;
+    const hw     = ((stats?.zoneWidth  ?? zoneWidth) * W) / 2;
+    const fgPct  = stats ? stats.mad / 100 : 0;
+    const threshold = stats ? stats.threshold / 100 : 0.20;
 
-    // Zone fill
+    const color = justFired ? '#ef4444' : armed ? '#22c55e' : '#64748b';
+
+    // Vertical strip fill
     ctx.fillStyle = justFired
-      ? 'rgba(239,68,68,0.4)'
-      : armed ? 'rgba(34,197,94,0.18)' : 'rgba(255,255,255,0.06)';
-    ctx.fillRect(0, zTop, W, zH);
+      ? 'rgba(239,68,68,0.35)'
+      : armed ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)';
+    ctx.fillRect(center - hw, 0, hw * 2, H);
 
-    // Zone borders
-    const lineColor = justFired ? '#ef4444' : armed ? '#22c55e' : '#64748b';
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 3;
-    ctx.setLineDash([8, 6]);
-    ctx.beginPath(); ctx.moveTo(0, zTop);      ctx.lineTo(W, zTop);      ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, zTop + zH); ctx.lineTo(W, zTop + zH); ctx.stroke();
+    // Left and right border lines (vertical dashed)
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 2;
+    ctx.setLineDash([10, 7]);
+    ctx.beginPath(); ctx.moveTo(center - hw, 0); ctx.lineTo(center - hw, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(center + hw, 0); ctx.lineTo(center + hw, H); ctx.stroke();
     ctx.setLineDash([]);
 
-    // Crosshairs
-    ctx.strokeStyle = lineColor; ctx.lineWidth = 2;
-    [[14, zTop + zH/2], [W-14, zTop + zH/2]].forEach(([x, y]) => {
-      ctx.beginPath(); ctx.moveTo(x-8,y); ctx.lineTo(x+8,y); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x,y-8); ctx.lineTo(x,y+8); ctx.stroke();
+    // Centre solid line (the "beam")
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = justFired ? 4 : 2.5;
+    ctx.beginPath(); ctx.moveTo(center, 0); ctx.lineTo(center, H); ctx.stroke();
+
+    // Horizontal crosshair ticks at top and bottom
+    [[center, 16], [center, H - 16]].forEach(([x, y]) => {
+      ctx.beginPath(); ctx.moveTo(x - 10, y); ctx.lineTo(x + 10, y); ctx.stroke();
     });
 
-    // Zone label
-    ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center';
-    ctx.fillStyle = lineColor;
-    ctx.fillText(
-      justFired ? '⚡ TRIGGERED' : armed ? '● ARMED' : '○ DISARMED',
-      W/2, zTop + zH/2 + 5
-    );
+    // Gate label (vertical, beside the line)
+    ctx.save();
+    ctx.translate(center + hw + 14, H / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font      = 'bold 11px system-ui';
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.fillText(justFired ? '⚡ TRIGGERED' : armed ? '● GATE ARMED' : '○ DISARMED', 0, 0);
+    ctx.restore();
 
-    // Foreground % bar
-    if (stats.mad !== undefined) {
-      const fgPct = stats.mad / 100;  // 0–1
-      const threshold = stats.threshold / 100;
-      const barW = W * 0.7, barX = (W - barW) / 2, barY = H - 22;
+    // Foreground % bar at bottom
+    const barW = W * 0.65, barX = (W - barW) / 2, barY = H - 22;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(barX - 2, barY - 2, barW + 4, 16);
 
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(barX - 2, barY - 2, barW + 4, 16);
+    const barColor = fgPct >= threshold ? '#ef4444' : fgPct >= threshold * 0.5 ? '#f59e0b' : '#22c55e';
+    ctx.fillStyle = barColor;
+    ctx.fillRect(barX, barY, barW * Math.min(fgPct, 1), 12);
 
-      const barColor = fgPct >= threshold ? '#ef4444' : fgPct >= threshold * 0.6 ? '#f59e0b' : '#22c55e';
-      ctx.fillStyle = barColor;
-      ctx.fillRect(barX, barY, barW * Math.min(fgPct, 1), 12);
+    // Threshold marker
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    const tx = barX + barW * Math.min(threshold, 1);
+    ctx.beginPath(); ctx.moveTo(tx, barY - 4); ctx.lineTo(tx, barY + 16); ctx.stroke();
 
-      // Threshold line
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-      const tx = barX + barW * threshold;
-      ctx.beginPath(); ctx.moveTo(tx, barY - 4); ctx.lineTo(tx, barY + 16); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`Gate ${Math.round(fgPct * 100)}% / trigger ${Math.round(threshold * 100)}%`, W / 2, barY - 5);
 
-      ctx.fillStyle = '#fff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`Zone ${Math.round(fgPct * 100)}% / trigger ${Math.round(threshold * 100)}%`, W/2, barY - 5);
-    }
-  }, [stats, armed, justFired, zonePos]);
+  }, [stats, armed, justFired, zoneCenter]);
 
   if (error) {
     return (
@@ -129,10 +133,11 @@ export default function CameraGate({
 
   return (
     <div className="flex flex-col gap-2">
+
       {/* Camera viewport */}
       <div className="relative rounded-2xl overflow-hidden bg-black" style={{ aspectRatio: '4/3' }}>
         <video ref={videoRef} className="w-full h-full object-cover"
-          style={{ transform: 'scaleX(-1)' }} playsInline muted autoPlay />
+          playsInline muted autoPlay />
         <canvas ref={overlayRef} width={640} height={480}
           className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none' }} />
 
@@ -142,6 +147,7 @@ export default function CameraGate({
           </div>
         )}
 
+        {/* Status chip */}
         <div className={`absolute top-2 left-2 px-2 py-1 rounded-full text-xs font-bold
           ${justFired ? 'bg-red-600 text-white' : armed ? 'bg-green-700 text-green-100' : 'bg-slate-700 text-slate-300'}`}>
           {justFired ? '⚡ TRIGGERED' : armed ? '● ARMED' : '○ DISARMED'}
@@ -151,12 +157,12 @@ export default function CameraGate({
       {/* Controls */}
       <div className="card flex flex-col gap-3">
         <div className="flex items-center justify-between text-xs text-slate-400">
-          <span>🎯 Detection zone (from top)</span>
-          <span className="font-mono">{Math.round(zonePos * 100)}%</span>
+          <span>↔ Gate position (from left)</span>
+          <span className="font-mono">{Math.round(zoneCenter * 100)}%</span>
         </div>
-        <input type="range" min={10} max={85} step={1}
-          value={Math.round(zonePos * 100)}
-          onChange={e => setZonePos(e.target.value / 100)}
+        <input type="range" min={10} max={90} step={1}
+          value={Math.round(zoneCenter * 100)}
+          onChange={e => setZoneCenter(e.target.value / 100)}
           className="w-full accent-brand-500 h-2" />
 
         <div className="flex items-center justify-between text-xs text-slate-400 mt-1">
@@ -172,10 +178,11 @@ export default function CameraGate({
         </div>
       </div>
 
-      {/* Guide */}
-      <div className="text-xs text-slate-500 px-1 space-y-1">
-        <p>📐 <strong className="text-slate-400">Setup:</strong> Mount phone sideways, camera pointing across the track. Align green band at athlete's waist/hip height.</p>
-        <p>🔧 <strong className="text-slate-400">Calibrate:</strong> Stand still 3 sec (background builds), then walk through — bar should fill red. Lower sensitivity if it doesn't trigger.</p>
+      {/* Setup guide */}
+      <div className="bg-slate-800/60 rounded-xl p-3 text-xs text-slate-400 space-y-1">
+        <p>📱 <strong className="text-slate-300">Setup:</strong> Mount phone <strong>sideways</strong> at the gate — camera pointing across the track.</p>
+        <p>🟢 <strong className="text-slate-300">Align:</strong> Drag slider so the vertical line sits exactly on the gate position.</p>
+        <p>⏳ <strong className="text-slate-300">Calibrate:</strong> Keep clear for 2–3 sec (background builds), then walk through — bar should turn red.</p>
       </div>
     </div>
   );
