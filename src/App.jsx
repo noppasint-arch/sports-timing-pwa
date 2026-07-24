@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { connection } from './core/ConnectionManager';
 import { TimeSync }   from './core/TimeSync';
-import { getSettings, saveSettings } from './core/StorageManager';
+import { getSettings, saveSettings, saveSession, appendResult } from './core/StorageManager';
 import { releaseCamera } from './core/CameraManager';
 
 import HomeScreen        from './components/screens/HomeScreen';
@@ -36,6 +37,9 @@ export default function App() {
   const [lastResult,  setLastResult]  = useState(null);      // computed result to display
   const [latency,     setLatency]     = useState(null);
   const [connected,   setConnected]   = useState(false);
+  const [localSessionId, setLocalSessionId] = useState(null); // this device's local history record for the session
+  const [markerConfirmed, setMarkerConfirmed] = useState(false); // confirmed once per session, not re-asked every trial
+  const [trialCount,  setTrialCount]  = useState(0);          // increments across the whole session, not per Ready mount
 
   const timeSyncRef = useRef(null);
   const sessionRef  = useRef(null);
@@ -122,6 +126,9 @@ export default function App() {
       setSession(res.sessionData);
       setIsHost(true);
       setScreen('role');
+      const sid = uuidv4();
+      saveSession({ id: sid, code: res.code, testTemplate: templateId, hostName, createdAt: Date.now(), results: [] });
+      setLocalSessionId(sid);
     }
     return res;
   }, []);
@@ -136,6 +143,9 @@ export default function App() {
       setSession(res.sessionData);
       setIsHost(res.isHost);
       setScreen('role');
+      const sid = uuidv4();
+      saveSession({ id: sid, code: res.sessionData.code, testTemplate: res.sessionData.testTemplate, hostName: deviceName, createdAt: Date.now(), results: [] });
+      setLocalSessionId(sid);
     }
     return res;
   }, [deviceId]);
@@ -171,6 +181,7 @@ export default function App() {
 
   const handleStartTrial = useCallback((trialId, countdown = 3) => {
     setTrialEvents([]);
+    setTrialCount(c => c + 1);
     connection.emit('test:start_trial', { trialId, countdown });
     setScreen('running');
   }, []);
@@ -187,9 +198,19 @@ export default function App() {
 
   const handleSaveResult = useCallback((result) => {
     connection.emit('result:save', result);
+    if (localSessionId) appendResult(localSessionId, result);
     setLastResult(result);
     setScreen('result');
-  }, []);
+  }, [localSessionId]);
+
+  const handleVoidResult = useCallback(() => {
+    setLastResult(r => {
+      if (!r) return r;
+      const voided = { ...r, voided: true };
+      if (localSessionId) appendResult(localSessionId, voided);
+      return voided;
+    });
+  }, [localSessionId]);
 
   const handleNextTrial = useCallback(() => {
     if (isHost) connection.emit('test:next_trial');
@@ -216,6 +237,9 @@ export default function App() {
     setTrialEvents([]);
     setLastResult(null);
     setSyncResult(null);
+    setLocalSessionId(null);
+    setMarkerConfirmed(false);
+    setTrialCount(0);
   }, []);
 
   // ── Common props ──────────────────────────────────────────────────────────
@@ -243,6 +267,9 @@ export default function App() {
 
     ready:   <ReadyScreen   {...commonProps}
                trialEvents={trialEvents}
+               trialCount={trialCount}
+               markerConfirmed={markerConfirmed}
+               onConfirmMarker={() => setMarkerConfirmed(true)}
                onStartTrial={handleStartTrial}
                onHome={handleHome} />,
 
@@ -256,6 +283,7 @@ export default function App() {
                result={lastResult}
                trialEvents={trialEvents}
                onNextTrial={handleNextTrial}
+               onVoid={handleVoidResult}
                onHome={handleHome} />,
 
     display: <DisplayScreen session={session} syncResult={syncResult} />,
@@ -274,7 +302,7 @@ export default function App() {
       {/* Global status bar */}
       <div className="flex items-center justify-between px-3 py-1 bg-slate-950 text-xs">
         <span className="text-slate-400 truncate">
-          {session ? `Session ${session.code}` : 'Sports Timing'}
+          {session ? `Session ${session.code}` : 'PulseGate'}
         </span>
         <div className="flex items-center gap-2">
           {latency !== null && (

@@ -6,11 +6,10 @@ import { ensureCameraStarted, getCameraDetector } from '../../core/CameraManager
 
 export default function ReadyScreen({
   session, myRole, isHost, syncResult, latency,
+  trialCount, markerConfirmed, onConfirmMarker,
   onStartTrial, onHome,
 }) {
-  const [showMarker,   setShowMarker]   = useState(true);
-  const [markerConfirm, setMarkerConfirm] = useState(false);
-  const [trialCount,   setTrialCount]   = useState(0);
+  const [showMarker, setShowMarker] = useState(true);
 
   const template = session ? getTemplate(session.testTemplate) : null;
 
@@ -27,7 +26,6 @@ export default function ReadyScreen({
 
   function handleStart() {
     const trialId = `trial_${Date.now()}`;
-    setTrialCount(c => c + 1);
     onStartTrial(trialId, 3);
   }
 
@@ -62,16 +60,16 @@ export default function ReadyScreen({
             Align this green line with your physical gate/tape on the ground.
             The athlete crossing this line = sensor trigger point.
           </div>
-          {!markerConfirm && (
+          {!markerConfirmed && (
             <button
-              onClick={() => setMarkerConfirm(true)}
+              onClick={onConfirmMarker}
               className="mt-3 bg-yellow-700 hover:bg-yellow-600 text-white px-4 py-2 rounded-xl text-sm font-bold w-full"
             >
               ✓ Marker Aligned — Ready
             </button>
           )}
-          {markerConfirm && (
-            <div className="mt-3 text-green-400 text-sm font-bold">✓ Marker confirmed</div>
+          {markerConfirmed && (
+            <div className="mt-3 text-green-400 text-sm font-bold">✓ Marker confirmed for this session</div>
           )}
         </div>
       )}
@@ -111,17 +109,17 @@ export default function ReadyScreen({
       {isHost && isStartNode ? (
         <button
           onClick={handleStart}
-          disabled={!markerConfirm && showMarker}
+          disabled={!markerConfirmed && showMarker}
           className={`btn-trigger text-white pulse-green ${
-            (!markerConfirm && showMarker) ? 'bg-slate-700 opacity-60' : 'bg-brand-600'
+            (!markerConfirmed && showMarker) ? 'bg-slate-700 opacity-60' : 'bg-brand-600'
           }`}
         >
-          {(!markerConfirm && showMarker) ? 'Confirm Marker First' : '▶ START TRIAL'}
+          {(!markerConfirmed && showMarker) ? 'Confirm Marker First' : '▶ START TRIAL'}
         </button>
       ) : isHost ? (
         <button
           onClick={handleStart}
-          disabled={!markerConfirm && showMarker}
+          disabled={!markerConfirmed && showMarker}
           className="btn-primary w-full text-lg"
         >
           ▶ Start Trial (Host)

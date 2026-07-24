@@ -1,13 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getTemplate, getNormRating } from '../../templates/TemplateEngine';
 import SyncBadge from '../ui/SyncBadge';
-import { exportCSV, exportJSON, getAthletes } from '../../core/StorageManager';
+import { exportCSV, exportJSON } from '../../core/StorageManager';
+import { pushResultToAPL, getLastStudentId } from '../../core/apiSync';
 
-export default function ResultScreen({ session, result, trialEvents, onNextTrial, onHome, isHost }) {
+const AUTO_ADVANCE_SECONDS = 8;
+
+export default function ResultScreen({ session, result, trialEvents, onNextTrial, onVoid, onHome, isHost, settings }) {
   const [showRaw,    setShowRaw]    = useState(false);
   const [athleteAge, setAthleteAge] = useState(20);
   const [gender,     setGender]     = useState('male');
   const [voided,     setVoided]     = useState(false);
+  const [studentId,  setStudentId]  = useState(getLastStudentId);
+  const [sendStatus, setSendStatus] = useState('idle'); // idle | sending | sent | error
+  const [sendError,  setSendError]  = useState('');
+  const [autoSecondsLeft, setAutoSecondsLeft] = useState(
+    settings?.autoContinue === false ? null : AUTO_ADVANCE_SECONDS
+  );
+
+  const onNextTrialRef = useRef(onNextTrial);
+  onNextTrialRef.current = onNextTrial;
+
+  // Auto-continue: return to Ready on its own so the next runner doesn't need a manual tap.
+  // Any hands-on interaction with this screen (below) cancels it so nothing gets whisked away mid-review.
+  useEffect(() => {
+    if (autoSecondsLeft === null) return;
+    if (autoSecondsLeft <= 0) { onNextTrialRef.current(); return; }
+    const t = setTimeout(() => setAutoSecondsLeft(s => (s === null ? null : s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [autoSecondsLeft]);
+
+  function cancelAutoAdvance() {
+    setAutoSecondsLeft(null);
+  }
 
   const template = session ? getTemplate(session.testTemplate) : null;
   if (!result || !template) {
@@ -36,6 +61,30 @@ export default function ResultScreen({ session, result, trialEvents, onNextTrial
 
   function handleVoid() {
     setVoided(true);
+    onVoid?.();
+    cancelAutoAdvance();
+  }
+
+  async function handleSendToAPL() {
+    if (!studentId.trim()) {
+      setSendStatus('error');
+      setSendError('Enter a student ID first');
+      return;
+    }
+    setSendStatus('sending');
+    setSendError('');
+    try {
+      await pushResultToAPL({
+        studentId,
+        testType: session.testTemplate,
+        result,
+        deviceName: settings?.deviceName,
+      });
+      setSendStatus('sent');
+    } catch (err) {
+      setSendStatus('error');
+      setSendError(err.message || 'Failed to send');
+    }
   }
 
   return (
@@ -84,6 +133,33 @@ export default function ResultScreen({ session, result, trialEvents, onNextTrial
           <div className="text-slate-400 text-lg">No primary metric</div>
         )}
       </div>
+
+      {/* Send to Athlete Performance Lab */}
+      {!voided && (
+        <div className="card">
+          <div className="text-xs text-slate-400 uppercase tracking-widest mb-2">Send to Athlete Performance Lab</div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={studentId}
+              onChange={e => { setStudentId(e.target.value); setSendStatus('idle'); }}
+              onFocus={cancelAutoAdvance}
+              placeholder="Student ID"
+              className="flex-1 bg-slate-700 rounded px-3 py-2 text-white text-sm"
+            />
+            <button
+              onClick={handleSendToAPL}
+              disabled={sendStatus === 'sending'}
+              className={`btn-secondary text-sm px-4 whitespace-nowrap ${sendStatus === 'sent' ? 'bg-green-700' : ''}`}
+            >
+              {sendStatus === 'sending' ? 'Sending…' : sendStatus === 'sent' ? '✓ Sent' : 'Send'}
+            </button>
+          </div>
+          {sendStatus === 'error' && (
+            <div className="text-red-400 text-xs mt-2">{sendError}</div>
+          )}
+        </div>
+      )}
 
       {/* Norm rating */}
       {normRating && !voided && (
@@ -148,7 +224,7 @@ export default function ResultScreen({ session, result, trialEvents, onNextTrial
       </div>
 
       {/* Raw events toggle */}
-      <button onClick={() => setShowRaw(v => !v)} className="text-slate-400 text-xs">
+      <button onClick={() => { setShowRaw(v => !v); cancelAutoAdvance(); }} className="text-slate-400 text-xs">
         {showRaw ? '▾ Hide' : '▸ Show'} raw timestamps
       </button>
       {showRaw && (
@@ -177,6 +253,12 @@ export default function ResultScreen({ session, result, trialEvents, onNextTrial
       {!voided && isHost && (
         <button onClick={handleVoid} className="text-red-400 text-sm text-center">
           ⚠️ Void this result
+        </button>
+      )}
+
+      {autoSecondsLeft !== null && (
+        <button onClick={cancelAutoAdvance} className="text-slate-400 text-xs text-center">
+          ⏱ Auto-continuing in {autoSecondsLeft}s — tap to pause
         </button>
       )}
 

@@ -12,6 +12,8 @@ export default function CameraGate({
   getServerTime,
   sensitivity: initSensitivity = 20,
   zonePosition: initZone = 0.50,
+  diagnostics = false,
+  dualZone = false,
   onDetectorReady,
 }) {
   const videoRef   = useRef(null);
@@ -40,6 +42,8 @@ export default function CameraGate({
     const existing = getCameraDetector();
     if (existing?._stream) {
       updateCameraCallbacks(callbacks);
+      existing.setDiagnostics(diagnostics);
+      existing.setDualZone(dualZone);
       if (videoRef.current && !videoRef.current.srcObject) {
         videoRef.current.srcObject = existing.getStream();
         videoRef.current.play().catch(() => {});
@@ -56,6 +60,8 @@ export default function CameraGate({
       zoneCenter:  initZone,
       zoneWidth,
       getServerTime,
+      diagnostics,
+      dualZone,
     }).then(detector => {
       detector.onTrigger = callbacks.onTrigger;
       detector.onFrame   = callbacks.onFrame;
@@ -85,6 +91,16 @@ export default function CameraGate({
   useEffect(() => {
     getCameraDetector()?.setZone(zoneCenter, zoneWidth);
   }, [zoneCenter]);
+
+  // Diagnostics (research mode)
+  useEffect(() => {
+    getCameraDetector()?.setDiagnostics(diagnostics);
+  }, [diagnostics]);
+
+  // Dual-zone false-trigger filter
+  useEffect(() => {
+    getCameraDetector()?.setDualZone(dualZone);
+  }, [dualZone]);
 
   // ── Canvas overlay — vertical gate ───────────────────────────────────────
   useEffect(() => {
@@ -120,6 +136,16 @@ export default function CameraGate({
       ctx.beginPath(); ctx.moveTo(x - 10, y); ctx.lineTo(x + 10, y); ctx.stroke();
     });
 
+    // Dual-zone divider — splits the beam into top/bottom bands that must both trigger
+    const isDualZone = !!stats?.dualZone;
+    if (isDualZone) {
+      const splitY = H * (stats?.zoneSplitFrac ?? 0.5);
+      ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.moveTo(center - hw, splitY); ctx.lineTo(center + hw, splitY); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // Label beside line
     ctx.save();
     ctx.translate(center + hw + 14, H / 2);
@@ -128,18 +154,39 @@ export default function CameraGate({
     ctx.fillText(justFired ? '⚡ TRIGGERED' : armed ? '● GATE ARMED' : '○ DISARMED', 0, 0);
     ctx.restore();
 
-    // Foreground bar
-    const barW = W * 0.65, barX = (W - barW) / 2, barY = H - 22;
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(barX - 2, barY - 2, barW + 4, 16);
-    const barColor = fgPct >= thresh ? '#ef4444' : fgPct >= thresh * 0.5 ? '#f59e0b' : '#22c55e';
-    ctx.fillStyle = barColor;
-    ctx.fillRect(barX, barY, barW * Math.min(fgPct, 1), 12);
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    const tx = barX + barW * Math.min(thresh, 1);
-    ctx.beginPath(); ctx.moveTo(tx, barY - 4); ctx.lineTo(tx, barY + 16); ctx.stroke();
-    ctx.fillStyle = '#fff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(`Gate ${Math.round(fgPct * 100)}% / trigger ${Math.round(thresh * 100)}%`, W / 2, barY - 5);
+    if (isDualZone) {
+      // Two stacked bars — TOP and BOTTOM band foreground%, both must clear the threshold line
+      const fgTopPct = stats ? stats.fgTop / 100 : 0;
+      const fgBotPct = stats ? stats.fgBottom / 100 : 0;
+      const barW = W * 0.65, barX = (W - barW) / 2;
+      const drawBand = (label, pct, barY) => {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(barX - 2, barY - 2, barW + 4, 14);
+        const bc = pct >= thresh ? '#ef4444' : pct >= thresh * 0.5 ? '#f59e0b' : '#22c55e';
+        ctx.fillStyle = bc;
+        ctx.fillRect(barX, barY, barW * Math.min(pct, 1), 10);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+        const tx = barX + barW * Math.min(thresh, 1);
+        ctx.beginPath(); ctx.moveTo(tx, barY - 3); ctx.lineTo(tx, barY + 13); ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(`${label} ${Math.round(pct * 100)}%`, W / 2, barY - 4);
+      };
+      drawBand('TOP', fgTopPct, H - 40);
+      drawBand('BOT', fgBotPct, H - 20);
+    } else {
+      // Single foreground bar
+      const barW = W * 0.65, barX = (W - barW) / 2, barY = H - 22;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(barX - 2, barY - 2, barW + 4, 16);
+      const barColor = fgPct >= thresh ? '#ef4444' : fgPct >= thresh * 0.5 ? '#f59e0b' : '#22c55e';
+      ctx.fillStyle = barColor;
+      ctx.fillRect(barX, barY, barW * Math.min(fgPct, 1), 12);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      const tx = barX + barW * Math.min(thresh, 1);
+      ctx.beginPath(); ctx.moveTo(tx, barY - 4); ctx.lineTo(tx, barY + 16); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(`Gate ${Math.round(fgPct * 100)}% / trigger ${Math.round(thresh * 100)}%`, W / 2, barY - 5);
+    }
 
   }, [stats, armed, justFired, zoneCenter]);
 

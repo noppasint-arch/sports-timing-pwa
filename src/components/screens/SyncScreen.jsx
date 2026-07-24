@@ -26,6 +26,7 @@ export default function SyncScreen({ onSyncDone, onRunSync, session, myRole }) {
   }
 
   const qualityConfig = {
+    excellent: { label: 'EXCELLENT', color: 'text-green-400',  bg: 'bg-green-900/40',  icon: '✅', desc: '±<5ms — Ideal for timing gates' },
     good:    { label: 'GOOD',    color: 'text-green-400',  bg: 'bg-green-900/40',  icon: '✅', desc: '±<20ms — Excellent for timing gates' },
     fair:    { label: 'FAIR',    color: 'text-yellow-400', bg: 'bg-yellow-900/40', icon: '⚠️', desc: '±20–50ms — Acceptable, minor inaccuracy' },
     poor:    { label: 'POOR',    color: 'text-red-400',    bg: 'bg-red-900/40',    icon: '❌', desc: '>50ms — Re-sync recommended before testing' },

@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png'],
       manifest: {
-        name: 'Sports Timing System',
-        short_name: 'SportsTiming',
+        name: 'PulseGate — Sports Timing',
+        short_name: 'PulseGate',
         description: 'Multi-device synchronized sports performance testing',
         theme_color: '#0f172a',
         background_color: '#0f172a',

@@ -207,6 +207,8 @@ export default function RunningScreen({
               getServerTime={getServerTime}
               sensitivity={settings?.cameraSensitivity ?? 25}
               zonePosition={settings?.cameraZone ?? 0.45}
+              diagnostics={settings?.cameraDiagnostics ?? false}
+              dualZone={settings?.cameraDualZone ?? false}
               onDetectorReady={d => { cameraDetectorRef.current = d; }}
             />
           )}

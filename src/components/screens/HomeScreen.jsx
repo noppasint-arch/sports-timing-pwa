@@ -5,7 +5,7 @@ import { getSettings } from '../../core/StorageManager';
 export default function HomeScreen({ onCreateSession, onJoinSession, onHistory, onSettings, connected }) {
   const [mode,       setMode]       = useState(null); // null | 'create' | 'join'
   const [digits,     setDigits]     = useState(['', '', '', '']);
-  const [hostName,   setHostName]   = useState(getSettings().deviceName || 'Coach');
+  const [hostName,   setHostName]   = useState('');
   const [deviceName, setDeviceName] = useState(getSettings().deviceName || 'Device');
   const [templateId, setTemplateId] = useState('sprint-30m');
   const [error,      setError]      = useState('');
@@ -57,8 +57,8 @@ export default function HomeScreen({ onCreateSession, onJoinSession, onHistory, 
     <div className="screen overflow-y-auto gap-4">
       {/* Logo */}
       <div className="text-center pt-4 pb-2">
-        <div className="text-5xl mb-1">⏱️</div>
-        <h1 className="text-2xl font-black tracking-tight">Sports Timing</h1>
+        <div className="text-5xl mb-1">⚡</div>
+        <h1 className="text-2xl font-black tracking-tight">PulseGate</h1>
         <p className="text-slate-400 text-sm">Multi-device performance testing</p>
       </div>
 
@@ -100,35 +100,53 @@ export default function HomeScreen({ onCreateSession, onJoinSession, onHistory, 
       {mode === 'create' && (
         <div className="space-y-4 flex-1">
           <button onClick={() => setMode(null)} className="text-slate-400 text-sm">← Back</button>
-          <h2 className="text-xl font-bold">New Session</h2>
+          <div>
+            <h2 className="text-xl font-black">New Session</h2>
+            <p className="text-slate-500 text-xs mt-0.5">Set up a coach name and pick a test to host</p>
+          </div>
 
-          <div className="space-y-2">
-            <label className="text-slate-400 text-sm">Your name / Coach name</label>
+          <div className="card space-y-2">
+            <div className="text-xs text-slate-400 uppercase tracking-widest">Coach</div>
             <input
               className="w-full bg-slate-700 rounded-xl px-4 py-3 text-lg outline-none focus:ring-2 focus:ring-brand-500"
               value={hostName}
               onChange={e => setHostName(e.target.value)}
-              placeholder="Coach name"
+              placeholder="Your name / coach name"
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-slate-400 text-sm">Select Test</label>
-            {templates.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTemplateId(t.id)}
-                className={`w-full text-left rounded-xl px-4 py-3 border-2 transition-all ${
-                  templateId === t.id
-                    ? 'border-brand-500 bg-brand-900/30'
-                    : 'border-slate-700 bg-slate-800'
-                }`}
-              >
-                <span className="mr-2">{t.icon}</span>
-                <span className="font-bold">{t.name}</span>
-                <div className="text-slate-400 text-xs mt-1 ml-7">{t.nodes.filter(n=>n.required).length} required devices</div>
-              </button>
-            ))}
+          <div className="card space-y-2">
+            <div className="text-xs text-slate-400 uppercase tracking-widest">Select Test</div>
+            <div className="space-y-2">
+              {templates.map(t => {
+                const selected = templateId === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTemplateId(t.id)}
+                    className={`relative w-full text-left rounded-xl pl-4 pr-3 py-3 border-2 transition-all overflow-hidden flex items-center gap-3 ${
+                      selected
+                        ? 'border-brand-500 bg-brand-900/30'
+                        : 'border-slate-700 bg-slate-900'
+                    }`}
+                  >
+                    {selected && <span className="absolute left-0 top-0 bottom-0 w-1 bg-brand-500" />}
+                    <span className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-xl ${
+                      selected ? 'bg-brand-500/20' : 'bg-slate-800'
+                    }`}>{t.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold truncate">{t.name}</div>
+                      <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-700 text-slate-300">
+                        {t.nodes.filter(n => n.required).length} required devices
+                      </span>
+                    </div>
+                    {selected && (
+                      <span className="shrink-0 w-6 h-6 rounded-full bg-brand-500 text-white flex items-center justify-center text-xs font-bold">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {error && <p className="text-red-400 text-sm">{error}</p>}
@@ -138,7 +156,7 @@ export default function HomeScreen({ onCreateSession, onJoinSession, onHistory, 
             disabled={loading || !connected}
             className="btn-primary w-full mt-4"
           >
-            {loading ? 'Creating…' : connected ? 'Create Session' : 'Connecting…'}
+            {loading ? 'Creating…' : connected ? '🏁 Create Session' : 'Connecting…'}
           </button>
         </div>
       )}

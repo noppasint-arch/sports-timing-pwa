@@ -132,6 +132,34 @@ export default function SettingsScreen({ settings, onSave, onBack }) {
           <p>3. Walk through — MAD bar should spike above the threshold line</p>
           <p>4. If false triggers: raise sensitivity number. If misses: lower it.</p>
         </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-slate-700">
+          <div>
+            <div className="text-sm font-medium">Dual-zone False-trigger Filter</div>
+            <div className="text-slate-500 text-xs">Splits the beam into top+bottom bands — both must trigger together, like a double photocell. Cuts false triggers from a leading arm or stray motion, but needs the athlete's full body height in frame.</div>
+          </div>
+          <button
+            onClick={() => update('cameraDualZone', !form.cameraDualZone)}
+            className={`w-12 h-6 rounded-full transition-colors shrink-0 ml-3 ${form.cameraDualZone ? 'bg-brand-500' : 'bg-slate-600'}`}
+          >
+            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform mx-0.5
+              ${form.cameraDualZone ? 'translate-x-6' : 'translate-x-0'}`} />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-slate-700">
+          <div>
+            <div className="text-sm font-medium">Research Diagnostic Mode</div>
+            <div className="text-slate-500 text-xs">Records the raw sensor signal trace with each trigger, for comparing against a reference timing system</div>
+          </div>
+          <button
+            onClick={() => update('cameraDiagnostics', !form.cameraDiagnostics)}
+            className={`w-12 h-6 rounded-full transition-colors shrink-0 ml-3 ${form.cameraDiagnostics ? 'bg-brand-500' : 'bg-slate-600'}`}
+          >
+            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform mx-0.5
+              ${form.cameraDiagnostics ? 'translate-x-6' : 'translate-x-0'}`} />
+          </button>
+        </div>
       </div>
 
       {/* Line marker */}
@@ -151,6 +179,24 @@ export default function SettingsScreen({ settings, onSave, onBack }) {
         </div>
         <div className="text-slate-500 text-xs">
           Adjust where the reference line appears on screen to match your physical gate placement.
+        </div>
+      </div>
+
+      {/* Trial flow */}
+      <div className="card space-y-4">
+        <h3 className="font-bold text-slate-300">Trial Flow</h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium">Auto-continue Between Trials</div>
+            <div className="text-slate-500 text-xs">After a result is shown, return to Ready automatically so the next runner can go without extra taps. Marker only needs confirming once per session either way.</div>
+          </div>
+          <button
+            onClick={() => update('autoContinue', !form.autoContinue)}
+            className={`w-12 h-6 rounded-full transition-colors shrink-0 ml-3 ${form.autoContinue ? 'bg-brand-500' : 'bg-slate-600'}`}
+          >
+            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform mx-0.5
+              ${form.autoContinue ? 'translate-x-6' : 'translate-x-0'}`} />
+          </button>
         </div>
       </div>
 

@@ -10,13 +10,15 @@ import { CameraMotionDetector } from './CameraMotionDetector';
 let _detector = null;
 let _started  = false;
 
-export async function ensureCameraStarted({ videoEl, sensitivity, zoneCenter, zoneWidth, getServerTime } = {}) {
+export async function ensureCameraStarted({ videoEl, sensitivity, zoneCenter, zoneWidth, getServerTime, diagnostics, dualZone } = {}) {
   if (!_detector) {
-    _detector = new CameraMotionDetector({ sensitivity, minFgPercent: 0.20 });
+    _detector = new CameraMotionDetector({ sensitivity, minFgPercent: 0.20, diagnostics, dualZone });
   }
   if (getServerTime) _detector.setServerTimeFn(getServerTime);
   if (zoneCenter !== undefined) _detector.setZone(zoneCenter, zoneWidth ?? 0.08);
   if (sensitivity !== undefined) _detector.setSensitivity(sensitivity);
+  if (diagnostics !== undefined) _detector.setDiagnostics(diagnostics);
+  if (dualZone !== undefined) _detector.setDualZone(dualZone);
 
   if (!_started) {
     await _detector.start(videoEl);

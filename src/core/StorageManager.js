@@ -75,6 +75,9 @@ export function getSettings() {
     cameraEnabled:     false,
     cameraSensitivity: 25,    // MAD threshold
     cameraZone:        0.45,  // fraction from top of frame
+    cameraDiagnostics: false, // record raw sensor signal traces for validation studies
+    cameraDualZone:    false, // require top+bottom bands to both trigger (like a double photocell)
+    autoContinue:      true,  // auto-return to Ready screen after showing a result
     serverUrl:         '',
   };
 }
